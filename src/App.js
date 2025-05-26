@@ -265,8 +265,55 @@ const InsertTransaccionModal = ({ isOpen, onClose, onSubmit }) => {
 };
 
 
+const UpdateModal = ({ isOpen, onClose, onSubmit, fields, initialData }) => {
+  const [formData, setFormData] = useState(initialData || {});
 
+  React.useEffect(() => {
+    setFormData(initialData || {});
+  }, [initialData]);
 
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  if (!isOpen) return null;
+  return (
+    <Modal title="Actualizar elemento" onClose={onClose} onSubmit={() => onSubmit(formData)}>
+      {fields.map(f => (
+        <input
+          key={f}
+          name={f}
+          placeholder={f}
+          value={formData[f] || ""}
+          onChange={handleChange}
+        />
+      ))}
+    </Modal>
+  );
+};
+const DeleteByIdModal = ({ isOpen, onClose, onConfirm, index }) => {
+  const [id, setId] = useState("");
+
+  React.useEffect(() => {
+    setId("");
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+  // Si es boleto (index === 3), cambia el placeholder
+  const placeholder = index === 3 ? "Número asignado" : "ID";
+  return (
+    <Modal title="Eliminar elemento por ID" onClose={onClose} onSubmit={() => onConfirm(id)}>
+      <input
+        name="id"
+        placeholder={placeholder}
+        value={id}
+        type="number"
+        onChange={e => setId(e.target.value)}
+      />
+    </Modal>
+  );
+};
 
 // Reusable modal base
 const Modal = ({ title, onClose, onSubmit, children }) => (
@@ -286,13 +333,13 @@ const Modal = ({ title, onClose, onSubmit, children }) => (
 // COMPONENTE MINI TABLA
 // -------------------------
 
-const MiniTable = ({ title, onShow, onInsert, data }) => (
+const MiniTable = ({ title, onShow, onInsert, data, onDelete, onUpdate }) => (
   <div className="mini-table">
     <h3>{title}</h3>
     <div className="buttons">
       <button onClick={onInsert}>Insertar</button>
-      <button>Eliminar</button>
-      <button>Actualizar</button>
+      <button onClick={onDelete}>Eliminar</button>
+      <button onClick={onUpdate}>Actualizar</button>
       <button onClick={onShow}>{data ? "Ocultar" : "Mostrar"}</button>
     </div>
     {data && (
@@ -335,8 +382,21 @@ function App() {
     "http://127.0.0.1:5000/transaccion/obtener"
   ];
 
+  const tableFields = [
+    { id: "id", fields: ["nombre", "correo", "contraseña", "saldo"] }, // Usuario
+    { id: "id", fields: ["nombre", "numero_maximo_participantes", "valor", "fecha_inicio", "fecha_fin", "premio_principal", "premios_secundarios"] }, // Rifa
+    { id: "id", fields: ["deporte", "campeonato", "fecha_partido", "marcador", "valor_minimo_apuesta", "valor_maximo_apuesta"] }, // Apuesta
+    { id: "id", fields: ["id_rifa", "id_usuario", "numero_asignado"] }, // Boleto
+    { id: "id", fields: ["id_apuesta", "id_usuario", "valor_apostado"] }, // Participación Apuesta
+    { id: "id", fields: ["id_rifa", "numero_ganador"] }, // Sorteo
+    { id: "id", fields: ["id_usuario", "id_rifa_apuesta", "valor_ganado"] }, // Pago Premio
+    { id: "id", fields: ["id_usuario", "tipo", "monto"] } // Transacción
+  ];
+
   const [allData, setAllData] = useState(Array(8).fill(null));
   const [modalStates, setModalStates] = useState({ usuario: false, rifa: false, apuesta: false, boleto: false, participacion_apuesta: false, sorteo: false, pago_premio: false, transaccion: false });
+  const [deleteModal, setDeleteModal] = useState({ open: false, index: null });
+  const [updateModal, setUpdateModal] = useState({ open: false, index: null, fields: [] });
 
   const handleMostrar = async (index) => {
     const updatedData = [...allData];
@@ -372,6 +432,37 @@ function App() {
     }
   };
 
+  const deleteData = async (url, payload, refreshIndex) => {
+    try {
+      const options = {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" }
+      };
+      if (payload) options.body = JSON.stringify(payload);
+      const response = await fetch(url, options);
+      const result = await response.json();
+      console.log("Eliminado:", result);
+      handleMostrar(refreshIndex); // Refrescar vista
+    } catch (err) {
+      console.error("Error al eliminar:", err);
+    }
+  };
+
+  const updateData = async (url, payload, refreshIndex) => {
+    try {
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      console.log("Actualizado:", result);
+      handleMostrar(refreshIndex); // Refrescar vista
+    } catch (err) {
+      console.error("Error al actualizar:", err);
+    }
+  };
+
   return (
     <div className="App">
       <h1>Capi Apuestas</h1>
@@ -391,6 +482,12 @@ function App() {
               else if (index === 5) setModalStates({ ...modalStates, sorteo: true });
               else if (index === 6) setModalStates({ ...modalStates, pagoPremio: true });
               else if (index === 7) setModalStates({ ...modalStates, transaccion: true });
+            }}
+            onDelete={() => setDeleteModal({ open: true, index })}
+            onUpdate={() => {
+              // Incluye el campo id al principio de los campos
+              const fields = ["id", ...tableFields[index].fields];
+              setUpdateModal({ open: true, index, fields });
             }}
           />
         ))}
@@ -437,8 +534,47 @@ function App() {
         onSubmit={(data) => postData("http://127.0.0.1:5000/transaccion/crear", data, 7)}
       />
 
+      <UpdateModal
+        isOpen={updateModal.open}
+        onClose={() => setUpdateModal({ open: false, index: null, fields: [] })}
+        onSubmit={(data) => {
+          updateData(
+            apiUrls[updateModal.index].replace("/obtener", "/actualizar"),
+            data,
+            updateModal.index
+          );
+          setUpdateModal({ open: false, index: null, fields: [] });
+        }}
+        fields={updateModal.fields} // <-- SOLUCIÓN: usa los campos del estado
+        initialData={updateModal.data}
+      />
 
-
+      <DeleteByIdModal
+        isOpen={deleteModal.open}
+        index={deleteModal.index}
+        onClose={() => setDeleteModal({ open: false, index: null })}
+        onConfirm={(id) => {
+          if (id) {
+            if (deleteModal.index === 7) {
+              // Transacción: el id va en la URL
+              deleteData(
+                apiUrls[7].replace("/obtener", `/eliminar/${parseInt(id)}`),
+                null, // No body
+                7
+              );
+            } else {
+              // Otras tablas: el id va en el body
+              const payload = { id: parseInt(id) };
+              deleteData(
+                apiUrls[deleteModal.index].replace("/obtener", "/eliminar"),
+                payload,
+                deleteModal.index
+              );
+            }
+          }
+          setDeleteModal({ open: false, index: null });
+        }}
+      />
     </div>
   );
 }
